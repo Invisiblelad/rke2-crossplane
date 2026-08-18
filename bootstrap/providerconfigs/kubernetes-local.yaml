@@ -1,0 +1,11 @@
+# provider-kubernetes talks to whatever cluster this ProviderConfig points
+# at. Since Crossplane runs inside the same RKE2 local/management cluster as
+# Rancher, InjectedIdentity (the Crossplane pod's own ServiceAccount) is all
+# you need - no separate kubeconfig or Rancher API token to manage.
+apiVersion: kubernetes.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: local-cluster
+spec:
+  credentials:
+    source: InjectedIdentity

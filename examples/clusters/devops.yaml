@@ -1,0 +1,18 @@
+apiVersion: cluster.rancher-rke2.io/v1alpha1
+kind: XRke2Cluster
+metadata:
+  name: devops
+spec:
+  parameters:
+    clusterName: devops
+    kubernetesVersion: v1.28.9+rke2r1
+    cni: cilium
+    controlPlaneConcurrency: "1"
+    workerConcurrency: "1"
+    protectKernelDefaults: false
+    disableKubeProxy: false
+    kubeletArgs:
+      - "max-pods=200"
+    etcdSnapshotScheduleCron: "0 */6 * * *"
+    etcdSnapshotRetention: 10
+    etcdDisableSnapshots: false

@@ -1,0 +1,69 @@
+# "Option 1": manage the Rancher provisioning CRDs directly with
+# provider-kubernetes' generic Object MR - no XRD/Composition/claim
+# involved. This is the same shape the Composition in
+# apis/xrke2clusters/composition.yaml generates automatically from an
+# XRke2Cluster; applying it here shows what that Composition is doing
+# under the hood.
+#
+# Apply order matters: gpu-pool-01 must exist and be reconciled by Rancher
+# (so it gets a management.cattle.io cluster id in .status.clusterName)
+# before the token below can be created in the right namespace - Rancher
+# assigns that namespace, you can't predict it up front. `kubectl get
+# cluster.provisioning.cattle.io gpu-pool-01 -n fleet-default -o
+# jsonpath='{.status.clusterName}'` to find it, then patch this file.
+apiVersion: kubernetes.crossplane.io/v1alpha2
+kind: Object
+metadata:
+  name: gpu-pool-01-cluster
+spec:
+  providerConfigRef:
+    name: local-cluster
+  managementPolicies: ["*"]
+  forProvider:
+    manifest:
+      apiVersion: provisioning.cattle.io/v1
+      kind: Cluster
+      metadata:
+        name: gpu-pool-01
+        namespace: fleet-default
+      spec:
+        kubernetesVersion: v1.28.9+rke2r1
+        rkeConfig:
+          machineGlobalConfig:
+            cni: calico
+            disable-kube-proxy: false
+            protect-kernel-defaults: false
+          upgradeStrategy:
+            controlPlaneConcurrency: "1"
+            workerConcurrency: "1"
+---
+apiVersion: kubernetes.crossplane.io/v1alpha2
+kind: Object
+metadata:
+  name: gpu-pool-01-registration-token
+spec:
+  providerConfigRef:
+    name: local-cluster
+  managementPolicies: ["*"]
+  forProvider:
+    manifest:
+      apiVersion: management.cattle.io/v3
+      kind: ClusterRegistrationToken
+      metadata:
+        name: default-token
+        # REPLACE with the real value from
+        # `kubectl get cluster.provisioning.cattle.io gpu-pool-01 -n fleet-default -o jsonpath='{.status.clusterName}'`
+        namespace: c-m-REPLACE_ME
+      spec:
+        clusterName: c-m-REPLACE_ME
+  readiness:
+    policy: DeriveFromObject
+---
+# After both are Ready:
+#   kubectl get clusterregistrationtoken.management.cattle.io default-token \
+#     -n c-m-REPLACE_ME -o jsonpath='{.status.nodeCommand}'
+# ...gives you the same
+#   curl -fL https://<rancher>/system-agent-install.sh | sudo sh -s - --server ... --token ... --ca-checksum ...
+# command you'd otherwise run by hand or via your current Terraform +
+# remote-exec flow. Running it on the actual node is still out of band -
+# Crossplane hands you the command, it doesn't SSH in and run it.

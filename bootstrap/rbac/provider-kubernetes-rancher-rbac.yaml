@@ -1,0 +1,32 @@
+# provider-kubernetes acts as whatever identity it's given - with
+# InjectedIdentity that's its own ServiceAccount in the Crossplane install
+# namespace (default: crossplane-system, service account name is generated
+# per Provider revision - check `kubectl get sa -n crossplane-system`).
+# It needs RBAC on the Rancher CRDs it's going to manage.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crossplane-rancher-rke2-provisioner
+rules:
+- apiGroups: ["provisioning.cattle.io"]
+  resources: ["clusters"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["management.cattle.io"]
+  resources: ["clusterregistrationtokens", "clusters"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crossplane-rancher-rke2-provisioner
+subjects:
+- kind: ServiceAccount
+  # Replace with the actual provider-kubernetes ServiceAccount name, e.g.
+  # provider-kubernetes-<hash>. `kubectl get sa -n crossplane-system` after
+  # installing the provider to find it.
+  name: provider-kubernetes
+  namespace: crossplane-system
+roleRef:
+  kind: ClusterRole
+  name: crossplane-rancher-rke2-provisioner
+  apiGroup: rbac.authorization.k8s.io

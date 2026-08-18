@@ -1,0 +1,184 @@
+# This is "option 2": the Composition that turns an XRke2Cluster claim into
+# the same kind of raw Kubernetes objects shown in
+# examples/option1-plain-objects/rke2-cluster-plain.yaml ("option 1").
+#
+# It uses provider-kubernetes' generic `Object` MR to manage two of Rancher's
+# own CRDs directly on the local (management) cluster:
+#   1. provisioning.cattle.io/v1 Cluster        -> defines the downstream RKE2 cluster
+#   2. management.cattle.io/v3 ClusterRegistrationToken -> generates the node-join command
+#
+# Field names under spec.rkeConfig mirror RKE2's own config.yaml keys
+# (kebab-case), which is what Rancher's provisioning API expects. Verify them
+# against your Rancher version with:
+#   kubectl explain cluster.provisioning.cattle.io.spec.rkeConfig --recursive
+# before relying on this in production - Rancher has changed this shape
+# across releases.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xrke2clusters.cluster.rancher-rke2.io
+spec:
+  compositeTypeRef:
+    apiVersion: cluster.rancher-rke2.io/v1alpha1
+    kind: XRke2Cluster
+  mode: Pipeline
+  pipeline:
+  - step: patch-and-transform
+    functionRef:
+      name: function-patch-and-transform
+    input:
+      apiVersion: pt.fn.crossplane.io/v1beta1
+      kind: Resources
+      resources:
+
+      # --- 1. The downstream cluster itself -------------------------------
+      - name: rke2-cluster
+        base:
+          apiVersion: kubernetes.crossplane.io/v1alpha2
+          kind: Object
+          spec:
+            providerConfigRef:
+              name: local-cluster
+            managementPolicies: ["*"]
+            forProvider:
+              manifest:
+                apiVersion: provisioning.cattle.io/v1
+                kind: Cluster
+                metadata:
+                  namespace: fleet-default
+                spec:
+                  rkeConfig:
+                    machineGlobalConfig: {}
+                    upgradeStrategy: {}
+                    etcd: {}
+        patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.clusterName
+          toFieldPath: metadata.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.clusterName
+          toFieldPath: spec.forProvider.manifest.metadata.name
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.kubernetesVersion
+          toFieldPath: spec.forProvider.manifest.spec.kubernetesVersion
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.cni
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.cni
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.disableKubeProxy
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.disable-kube-proxy
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.protectKernelDefaults
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.protect-kernel-defaults
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.kubeletArgs
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.kubelet-arg
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.kubeApiServerArgs
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.kube-apiserver-arg
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.kubeControllerManagerArgs
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.machineGlobalConfig.kube-controller-manager-arg
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.controlPlaneConcurrency
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.upgradeStrategy.controlPlaneConcurrency
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.workerConcurrency
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.upgradeStrategy.workerConcurrency
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.etcdSnapshotScheduleCron
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.etcd.snapshotScheduleCron
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.etcdSnapshotRetention
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.etcd.snapshotRetention
+          policy:
+            fromFieldPath: Optional
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.etcdDisableSnapshots
+          toFieldPath: spec.forProvider.manifest.spec.rkeConfig.etcd.disableSnapshots
+          policy:
+            fromFieldPath: Optional
+        # NOTE: spec.parameters.nodeGroups (per-nodegroup kubelet overrides,
+        # matched by label) is NOT wired up yet. Rancher expects those under
+        # spec.rkeConfig.machineSelectorConfig as a list of
+        # {machineLabelSelector: {matchLabels: {...}}, config: {kubelet-arg: [...]}}
+        # entries, which is a reshape (not a 1:1 field copy) that
+        # patch-and-transform can't do. Once you need this, add a small
+        # custom function under functions/ (the schemas/kcl scaffold is
+        # already here) that maps nodeGroups[] -> machineSelectorConfig[].
+        #
+        # Surface the mgmt-cluster id Rancher assigns once it reconciles this
+        # Cluster object, so the token resource below can depend on it.
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.manifest.status.clusterName
+          toFieldPath: status.mgmtClusterName
+          policy:
+            fromFieldPath: Optional
+
+      # --- 2. A registration token -> gives you the node-join command -----
+      - name: rke2-registration-token
+        base:
+          apiVersion: kubernetes.crossplane.io/v1alpha2
+          kind: Object
+          spec:
+            providerConfigRef:
+              name: local-cluster
+            managementPolicies: ["*"]
+            forProvider:
+              manifest:
+                apiVersion: management.cattle.io/v3
+                kind: ClusterRegistrationToken
+                metadata:
+                  name: default-token
+                spec: {}
+        patches:
+        - type: FromCompositeFieldPath
+          fromFieldPath: spec.parameters.clusterName
+          toFieldPath: metadata.name
+          transforms:
+          - type: string
+            string:
+              type: Format
+              fmt: "%s-registration-token"
+        # These two only resolve once the Cluster above has actually been
+        # created by Rancher and reported back a management-cluster id -
+        # Required means this composed resource waits rather than creating a
+        # broken token in the wrong namespace.
+        - type: FromCompositeFieldPath
+          fromFieldPath: status.mgmtClusterName
+          toFieldPath: spec.forProvider.manifest.metadata.namespace
+          policy:
+            fromFieldPath: Required
+        - type: FromCompositeFieldPath
+          fromFieldPath: status.mgmtClusterName
+          toFieldPath: spec.forProvider.manifest.spec.clusterName
+          policy:
+            fromFieldPath: Required
+        # Surface the actual join command onto the XR's status so you (or
+        # automation - Ansible, cloud-init, an SSH job) can pick it up and
+        # run it on the node you want to add. Crossplane/provider-kubernetes
+        # does not execute this on the target host for you.
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.manifest.status.nodeCommand
+          toFieldPath: status.nodeRegistrationCommand
+          policy:
+            fromFieldPath: Optional
+        readinessChecks:
+        - type: NonEmpty
+          fieldPath: status.atProvider.manifest.status.nodeCommand

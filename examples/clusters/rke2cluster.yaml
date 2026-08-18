@@ -1,0 +1,27 @@
+apiVersion: cluster.rancher-rke2.io/v1alpha1
+kind: XRke2Cluster
+metadata:
+  name: gpu-pool-01
+spec:
+  parameters:
+    clusterName: gpu-pool-01
+    kubernetesVersion: v1.35.6+rke2r1
+    cni: calico
+    controlPlaneConcurrency: "1"
+    workerConcurrency: "1"
+    protectKernelDefaults: false
+    disableKubeProxy: false
+    kubeletArgs:
+      - "max-pods=250"
+      - "eviction-hard=memory.available<5%"
+    kubeApiServerArgs:
+      - "audit-log-maxage=30"
+    kubeControllerManagerArgs:
+      - "node-monitor-period=5s"
+    nodeGroups:
+      - name: gpu-workers
+        matchLabels:
+          node-role: gpu
+        kubeletArgs:
+          - "max-pods=110"
+          - "feature-gates=DevicePlugins=true"

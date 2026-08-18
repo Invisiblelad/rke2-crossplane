@@ -1,0 +1,91 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: xrke2clusters.cluster.rancher-rke2.io
+spec:
+  group: cluster.rancher-rke2.io
+  names:
+    categories:
+    - crossplane
+    kind: XRke2Cluster
+    plural: xrke2clusters
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        description: XRke2Cluster is the Schema for the XRke2Cluster API.
+        properties:
+          spec:
+            description: XRke2ClusterSpec defines the desired state of XRke2Cluster.
+            properties:
+              parameters:
+                properties:
+                  clusterName:
+                    type: string
+                  cni:
+                    type: string
+                  controlPlaneConcurrency:
+                    type: string
+                  disableKubeProxy:
+                    type: boolean
+                  etcdDisableSnapshots:
+                    description: Disable scheduled etcd snapshots entirely.
+                    type: boolean
+                  etcdSnapshotRetention:
+                    description: Number of etcd snapshots to retain.
+                    type: integer
+                  etcdSnapshotScheduleCron:
+                    description: Cron expression for scheduled etcd snapshots, e.g. "0 */6 * * *".
+                    type: string
+                  kubeApiServerArgs:
+                    items:
+                      type: string
+                    type: array
+                  kubeControllerManagerArgs:
+                    items:
+                      type: string
+                    type: array
+                  kubeletArgs:
+                    items:
+                      type: string
+                    type: array
+                  kubernetesVersion:
+                    type: string
+                  nodeGroups:
+                    items:
+                      properties:
+                        kubeletArgs:
+                          items:
+                            type: string
+                          type: array
+                        matchLabels:
+                          properties:
+                            node-role:
+                              type: string
+                          type: object
+                        name:
+                          type: string
+                      type: object
+                    type: array
+                  protectKernelDefaults:
+                    type: boolean
+                  workerConcurrency:
+                    type: string
+                type: object
+            type: object
+          status:
+            description: XRke2ClusterStatus defines the observed state of XRke2Cluster.
+            properties:
+              mgmtClusterName:
+                description: Generated management.cattle.io cluster id (e.g. c-m-xxxxx), assigned by Rancher after the provisioning.cattle.io Cluster is created.
+                type: string
+              nodeRegistrationCommand:
+                description: The `curl ... | sh -s -` command to run on each node you want to join to this cluster.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
